@@ -80,7 +80,7 @@ func TestDMARecordsDataMilestoneOnMemCopyComplete(t *testing.T) {
 		Address:        64,
 		AccessByteSize: 64,
 	}
-	mw.pendingReqs = append(mw.pendingReqs, read)
+	mw.pendingReqs[read.ID] = read
 	rqC.appendSubordinateID(read.Meta().ID)
 
 	toMem.Deliver(memprotocol.DataReadyRsp{

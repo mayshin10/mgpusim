@@ -18,7 +18,7 @@ import (
 // remaining requests
 type RequestCollection struct {
 	superiorRequest       messaging.Msg
-	subordinateRequestIDs []uint64
+	subordinateRequestIDs map[uint64]bool
 	subordinateCount      int
 }
 
@@ -26,14 +26,14 @@ type RequestCollection struct {
 // present in the list of subordinate IDs, returning true if it was and false
 // if it was not
 func (rqC *RequestCollection) decrementCountIfExists(id uint64) bool {
-	for _, subID := range rqC.subordinateRequestIDs {
-		if id == subID {
-			rqC.subordinateCount--
-			return true
-		}
+	if !rqC.subordinateRequestIDs[id] {
+		return false
 	}
 
-	return false
+	delete(rqC.subordinateRequestIDs, id)
+	rqC.subordinateCount--
+
+	return true
 }
 
 // isFinished returns true if the subordinate count is zero (i.e. the superior
@@ -52,7 +52,7 @@ func (rqC *RequestCollection) getSuperiorID() uint64 {
 
 // appendSubordinateID adds a message ID to the list and increases the count
 func (rqC *RequestCollection) appendSubordinateID(id uint64) {
-	rqC.subordinateRequestIDs = append(rqC.subordinateRequestIDs, id)
+	rqC.subordinateRequestIDs[id] = true
 	rqC.subordinateCount++
 }
 
@@ -63,6 +63,7 @@ func NewRequestCollection(
 ) *RequestCollection {
 	rqC := new(RequestCollection)
 	rqC.superiorRequest = superiorRequest
+	rqC.subordinateRequestIDs = make(map[uint64]bool)
 	rqC.subordinateCount = 0
 	return rqC
 }
@@ -110,7 +111,7 @@ type dmaMiddleware struct {
 	// message values of mixed types, so it lives here rather than in the
 	// component State. It is not checkpointable.
 	processingReqs []*RequestCollection
-	pendingReqs    []messaging.Msg
+	pendingReqs    map[uint64]messaging.Msg // by ID; a copy can have many
 	toSendToMem    []messaging.Msg
 	toSendToCP     []messaging.Msg
 }
@@ -262,20 +263,12 @@ func (m *dmaMiddleware) processDoneRsp(
 func (m *dmaMiddleware) removeReqFromPendingReqList(
 	id uint64,
 ) messaging.Msg {
-	var reqToRet messaging.Msg
-	newList := make([]messaging.Msg, 0, len(m.pendingReqs)-1)
-	for _, r := range m.pendingReqs {
-		if r.Meta().ID == id {
-			reqToRet = r
-		} else {
-			newList = append(newList, r)
-		}
-	}
-	m.pendingReqs = newList
-
-	if reqToRet == nil {
+	reqToRet, found := m.pendingReqs[id]
+	if !found {
 		panic("not found")
 	}
+
+	delete(m.pendingReqs, id)
 
 	return reqToRet
 }
@@ -364,7 +357,7 @@ func (m *dmaMiddleware) parseMemCopyH2D(
 			Data:    req.SrcBuffer[offset : offset+length],
 		}
 		m.toSendToMem = append(m.toSendToMem, reqToBottom)
-		m.pendingReqs = append(m.pendingReqs, reqToBottom)
+		m.pendingReqs[reqToBottom.ID] = reqToBottom
 		rqC.appendSubordinateID(reqToBottom.Meta().ID)
 
 		tracing.TraceReqInitiate(m.comp, reqToBottom,
@@ -406,7 +399,7 @@ func (m *dmaMiddleware) parseMemCopyD2H(
 			AccessByteSize: length,
 		}
 		m.toSendToMem = append(m.toSendToMem, reqToBottom)
-		m.pendingReqs = append(m.pendingReqs, reqToBottom)
+		m.pendingReqs[reqToBottom.ID] = reqToBottom
 		rqC.appendSubordinateID(reqToBottom.Meta().ID)
 
 		tracing.TraceReqInitiate(m.comp, reqToBottom,
@@ -483,7 +476,10 @@ func (b DMAEngineBuilder) Build(name string) *DMAComp {
 		Build(name)
 	comp.State = DMAState{}
 
-	comp.AddMiddleware(&dmaMiddleware{comp: comp})
+	comp.AddMiddleware(&dmaMiddleware{
+		comp:        comp,
+		pendingReqs: make(map[uint64]messaging.Msg),
+	})
 
 	comp.DeclarePort("ToCP")
 	comp.DeclarePort("ToMem", memprotocol.Requester)

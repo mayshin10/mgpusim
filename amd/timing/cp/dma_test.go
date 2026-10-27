@@ -162,11 +162,11 @@ var _ = Describe("DMAEngine", func() {
 		reqToBottom1 := makeReadReq(20, 44)
 		reqToBottom2 := makeReadReq(64, 64)
 		reqToBottom3 := makeReadReq(128, 20)
-		dmaMW.pendingReqs = append(dmaMW.pendingReqs, reqToBottom1)
+		dmaMW.pendingReqs[reqToBottom1.ID] = reqToBottom1
 		rqC.appendSubordinateID(reqToBottom1.Meta().ID)
-		dmaMW.pendingReqs = append(dmaMW.pendingReqs, reqToBottom2)
+		dmaMW.pendingReqs[reqToBottom2.ID] = reqToBottom2
 		rqC.appendSubordinateID(reqToBottom2.Meta().ID)
-		dmaMW.pendingReqs = append(dmaMW.pendingReqs, reqToBottom3)
+		dmaMW.pendingReqs[reqToBottom3.ID] = reqToBottom3
 		rqC.appendSubordinateID(reqToBottom3.Meta().ID)
 
 		data := []byte{
@@ -205,7 +205,7 @@ var _ = Describe("DMAEngine", func() {
 		dmaMW.processingReqs = append(dmaMW.processingReqs, rqC)
 
 		reqToBottom2 := makeReadReq(64, 64)
-		dmaMW.pendingReqs = append(dmaMW.pendingReqs, reqToBottom2)
+		dmaMW.pendingReqs[reqToBottom2.ID] = reqToBottom2
 		rqC.appendSubordinateID(reqToBottom2.Meta().ID)
 
 		data := []byte{
@@ -250,11 +250,11 @@ var _ = Describe("DMAEngine", func() {
 		reqToBottom2 := makeWriteReq(64)
 		reqToBottom3 := makeWriteReq(128)
 
-		dmaMW.pendingReqs = append(dmaMW.pendingReqs, reqToBottom1)
+		dmaMW.pendingReqs[reqToBottom1.ID] = reqToBottom1
 		rqC.appendSubordinateID(reqToBottom1.Meta().ID)
-		dmaMW.pendingReqs = append(dmaMW.pendingReqs, reqToBottom2)
+		dmaMW.pendingReqs[reqToBottom2.ID] = reqToBottom2
 		rqC.appendSubordinateID(reqToBottom2.Meta().ID)
-		dmaMW.pendingReqs = append(dmaMW.pendingReqs, reqToBottom3)
+		dmaMW.pendingReqs[reqToBottom3.ID] = reqToBottom3
 		rqC.appendSubordinateID(reqToBottom3.Meta().ID)
 
 		done := memprotocol.WriteDoneRsp{
@@ -280,7 +280,7 @@ var _ = Describe("DMAEngine", func() {
 		dmaMW.processingReqs = append(dmaMW.processingReqs, rqC)
 
 		reqToBottom2 := makeWriteReq(64)
-		dmaMW.pendingReqs = append(dmaMW.pendingReqs, reqToBottom2)
+		dmaMW.pendingReqs[reqToBottom2.ID] = reqToBottom2
 		rqC.appendSubordinateID(reqToBottom2.Meta().ID)
 
 		done := memprotocol.WriteDoneRsp{
