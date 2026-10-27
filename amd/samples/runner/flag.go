@@ -16,7 +16,13 @@ var parallelFlag = flag.Bool("parallel", false,
 var isaDebug = flag.Bool("debug-isa", false, "Generate the ISA debugging file.")
 var archFlag = flag.String("arch", "gcn3", "GPU architecture: gcn3 or cdna3.")
 var gpuTypeFlag = flag.String("gpu", "r9nano",
-	"GPU model for timing simulation: r9nano or mi300x.")
+	"GPU model for timing simulation: r9nano, mi300x, or mi300x-part.")
+var computePartitionFlag = flag.String("compute-partition", "spx",
+	"mi300x-part compute partitioning: spx, dpx, qpx, or cpx (1, 2, 4, or 8 GPUs).")
+var memoryPartitionFlag = flag.String("memory-partition", "nps1",
+	"mi300x-part memory partitioning: nps1, nps2, nps4, or nps8 (nps2/nps8 are hypothetical).")
+var reportFabricFlag = flag.String("report-fabric", "",
+	"mi300x-part: write per-link fabric traffic to this CSV file.")
 
 var verifyFlag = flag.Bool("verify", false, "Verify the emulation result.")
 var memTracing = flag.Bool("trace-mem", false, "Generate memory trace")
@@ -120,6 +126,19 @@ func (r *Runner) parseSimulationFlags() {
 
 	r.ArchType = parseArchFlag()
 	r.GPUType = parseGPUTypeFlag()
+	r.ComputePartitions = parsePartitionFlag(*computePartitionFlag,
+		map[string]int{"spx": 1, "dpx": 2, "qpx": 4, "cpx": 8})
+	r.MemoryPartitions = parsePartitionFlag(*memoryPartitionFlag,
+		map[string]int{"nps1": 1, "nps2": 2, "nps4": 4, "nps8": 8})
+}
+
+func parsePartitionFlag(value string, modes map[string]int) int {
+	n, ok := modes[strings.ToLower(value)]
+	if !ok {
+		panic("unknown partition mode " + value)
+	}
+
+	return n
 }
 
 func (r *Runner) parseGPUFlag() {

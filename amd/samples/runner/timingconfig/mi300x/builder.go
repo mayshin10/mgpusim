@@ -16,9 +16,6 @@ import (
 	"github.com/sarchlab/akita/v5/noc/directconnection"
 	"github.com/sarchlab/akita/v5/simulation"
 	"github.com/sarchlab/akita/v5/timing"
-	"github.com/sarchlab/mgpusim/v5/amd/emu"
-	"github.com/sarchlab/mgpusim/v5/amd/emu/cdna3"
-	"github.com/sarchlab/mgpusim/v5/amd/insts"
 	"github.com/sarchlab/mgpusim/v5/amd/samples/runner/timingconfig/gpubuilder"
 	"github.com/sarchlab/mgpusim/v5/amd/samples/runner/timingconfig/shaderarray"
 	"github.com/sarchlab/mgpusim/v5/amd/timing/cp"
@@ -563,37 +560,10 @@ func (b *Builder) connectL1TLBToL2TLB() {
 }
 
 func (b *Builder) buildSAs() {
-	saBuilder := shaderarray.MakeBuilder().
-		WithSimulation(b.simulation).
-		WithFreq(b.freq).
-		WithGPUID(b.gpuID).
-		WithNumCUs(b.numCUPerShaderArray).
-		WithLog2CacheLineSize(b.log2CacheLineSize).
-		WithLog2PageSize(b.log2PageSize).
+	saBuilder := ShaderArrayBuilder(b.simulation, b.freq, b.gpuID,
+		b.numCUPerShaderArray, b.log2CacheLineSize, b.log2PageSize).
 		WithL1AddressMapper(b.l1AddressMapper).
-		WithL1TLBAddressMapper(b.l1TLBAddressMapper).
-		// Use the CDNA3 ALU for MI300X timing simulation.
-		WithALUBuilder(func() emu.ALU { return cdna3.NewALU(nil) }).
-		// Decode with CDNA3 semantics so FLAT/GLOBAL SADDR addressing is
-		// resolved correctly (the default disassembler decodes as GCN3, which
-		// mis-handles SADDR=0 -> wrong address / "page not found").
-		WithDecoderBuilder(func() emu.Decoder {
-			d := insts.NewDisassembler()
-			d.IsCDNA3 = true
-			return d
-		}).
-		WithWfPoolSize(8).
-		WithVGPRCount([]int{32768, 32768, 32768, 32768}).
-		WithNumSinglePrecisionUnits(16).
-		WithVecMemInstPipelineStages(2).
-		WithVecMemTransPipelineStages(4).
-		WithVecMemTransPipelineWidth(8).
-		WithCUMemPipelineBufferSize(64).
-		WithL1VCacheSize(32 * mem.KB).
-		WithL1VBankLatency(9). // ~4.3 ns at 2.1 GHz (was 7 cyc / 1.7 GHz)
-		WithMemPipelineBufferSize(64).
-		WithMaxCoalescingPenalty(3).
-		WithRegisterScoreboard(true)
+		WithL1TLBAddressMapper(b.l1TLBAddressMapper)
 
 	for i := 0; i < b.numShaderArray; i++ {
 		saName := fmt.Sprintf("%s.SA[%d]", b.name, i)
@@ -606,17 +576,7 @@ func (b *Builder) buildSAs() {
 func (b *Builder) buildL2Caches() {
 	byteSize := b.l2CacheSize / uint64(b.numMemoryBank)
 
-	spec := writeback.DefaultSpec()
-	spec.Freq = b.freq
-	spec.Log2BlockSize = b.log2CacheLineSize
-	spec.WayAssociativity = 16
-	spec.TotalByteSize = byteSize
-	spec.NumMSHREntry = 512
-	spec.NumReqPerCycle = 64
-	spec.BankLatency = b.l2BankLatency
-	spec.DirLatency = 2
-	spec.MaxInflightFetch = 512
-	spec.MaxInflightEviction = 512
+	spec := L2CacheSpec(b.freq, b.log2CacheLineSize, byteSize, b.l2BankLatency)
 
 	for i := 0; i < b.numMemoryBank; i++ {
 		cacheName := fmt.Sprintf("%s.L2Cache[%d]", b.name, i)
@@ -664,18 +624,7 @@ func (b *Builder) buildL2Caches() {
 func (b *Builder) buildMALL() {
 	byteSize := b.mallCacheSize / uint64(b.numMemoryBank)
 
-	spec := writethroughcache.DefaultSpec()
-	spec.Freq = b.freq
-	spec.WritePolicyType = "write-through"
-	spec.Log2BlockSize = b.log2CacheLineSize
-	spec.WayAssociativity = 16
-	spec.TotalByteSize = byteSize
-	spec.NumMSHREntry = 512
-	spec.NumReqPerCycle = 64
-	spec.NumBanks = 16
-	spec.BankLatency = b.mallBankLatency
-	spec.DirLatency = 2
-	spec.MaxNumConcurrentTrans = 512
+	spec := MALLSpec(b.freq, b.log2CacheLineSize, byteSize, b.mallBankLatency)
 
 	for i := 0; i < b.numMemoryBank; i++ {
 		cacheName := fmt.Sprintf("%s.MALL[%d]", b.name, i)
@@ -717,20 +666,8 @@ func (b *Builder) buildDRAMControllers() {
 		// BankSelectorLog2InterleaveSize=6 then stripes the resulting
 		// controller-local address at 64 B granularity. The conversion affects
 		// bank selection only — storage stays global.
-		spec := simplebankedmemory.DefaultSpec()
-		spec.Freq = 1 * timing.GHz
-		spec.NumBanks = 16
-		spec.BankPipelineWidth = 1
-		spec.BankPipelineDepth = 5
-		spec.StageLatency = 1
-		spec.BankSelectorKind = "interleaved"
-		spec.BankSelectorLog2InterleaveSize = 6
-		spec.PostPipelineBufSize = 128
-		spec.BankAddrConvKind = "interleaving"
-		spec.BankAddrInterleavingSize = 1 << b.log2MemoryBankInterleavingSize
-		spec.BankAddrTotalNumOfElements = b.numMemoryBank
-		spec.BankAddrCurrentElementIndex = i
-		spec.Capacity = memBankSize
+		spec := DRAMSpec(1<<b.log2MemoryBankInterleavingSize,
+			b.numMemoryBank, i, memBankSize)
 
 		dramComp := simplebankedmemory.MakeBuilder().
 			WithRegistrar(b.simulation).
@@ -786,27 +723,10 @@ func (b *Builder) buildDMAEngine() {
 }
 
 func (b *Builder) buildCP() {
-	spec := cp.DefaultSpec()
-	spec.Freq = b.freq
-	// No fixed kernel launch/teardown overhead is modeled. The empty_kernel floor
-	// (~8.66 us at 1 WG) is launch_sync_us -- a host round-trip (CPU launch + API +
-	// device sync) that is NOT GPU time. Modeling it as a fixed GPU launch latency
-	// would fake host cost as device cost; the calibration metric anchors the floor
-	// out (error is measured relative to the smallest-grid point), so only the
-	// per-WG dispatch slope matters and it is unaffected. Leave all three overheads
-	// at zero unless/until a GPU-side launch measurement exists.
-	spec.ConstantKernelLaunchOverhead = 0
-	spec.SubsequentKernelLaunchOverhead = 0
-	spec.ConstantKernelOverhead = 0
-
 	// Per-die (per-XCD) dispatch: a kernel's work-groups are split into NumXCD
 	// contiguous blocks (one per die) and dispatched across the 8 XCDs in
-	// parallel, each XCD dispatching 1 wavefront / 2 cycles. For a 256-thread
-	// (4-wavefront) WG that is 8 cycles/WG per die, so 8 dies aggregate to ~1
-	// WG/cycle = ~0.48 ns/WG at 2.1 GHz, matching the empty_kernel sweep slope.
-	spec.Alg = "per-die"
-	spec.NumDies = NumXCD
-	spec.WavefrontDispatchCycles = 2
+	// parallel.
+	spec := CPSpec(b.freq, "per-die", NumXCD)
 
 	b.cp = cp.MakeBuilder().
 		WithRegistrar(b.simulation).
@@ -829,15 +749,7 @@ func (b *Builder) buildCP() {
 }
 
 func (b *Builder) buildL2TLB() {
-	numWays := 64
-
-	spec := tlb.DefaultSpec()
-	spec.Freq = b.freq
-	spec.NumWays = numWays
-	spec.NumSets = 64
-	spec.MSHRSize = 64
-	spec.NumReqPerCycle = 1024
-	spec.Log2PageSize = b.log2PageSize
+	spec := L2TLBSpec(b.freq, b.log2PageSize)
 
 	l2TLB := tlb.MakeBuilder().
 		WithRegistrar(b.simulation).

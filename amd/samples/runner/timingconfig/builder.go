@@ -13,8 +13,10 @@ import (
 	"github.com/sarchlab/akita/v5/simulation"
 	"github.com/sarchlab/akita/v5/timing"
 	"github.com/sarchlab/mgpusim/v5/amd/driver"
+	"github.com/sarchlab/mgpusim/v5/amd/timing/fabric"
 	"github.com/sarchlab/mgpusim/v5/amd/samples/runner/timingconfig/gpubuilder"
 	"github.com/sarchlab/mgpusim/v5/amd/samples/runner/timingconfig/mi300x"
+	"github.com/sarchlab/mgpusim/v5/amd/samples/runner/timingconfig/mi300xpart"
 	"github.com/sarchlab/mgpusim/v5/amd/samples/runner/timingconfig/r9nano"
 )
 
@@ -43,6 +45,11 @@ type Builder struct {
 	d2hCycles          int
 	h2dCycles          int
 
+	// mi300x-part only: the compute and memory partitioning of the package.
+	numComputePartitions int
+	numMemoryPartitions  int
+	fabricObserver       func(*fabric.Comp)
+
 	globalStorage     *mem.Storage
 	rdmaAddressMapper *mem.BankedAddressPortMapper
 }
@@ -61,6 +68,9 @@ func MakeBuilder() Builder {
 		switchLatency:      140, // default PCIe Gen4
 		d2hCycles:          300,
 		h2dCycles:          500,
+
+		numComputePartitions: 1,
+		numMemoryPartitions:  1,
 	}
 }
 
@@ -82,9 +92,27 @@ func (b Builder) WithMagicMemoryCopy() Builder {
 	return b
 }
 
-// WithGPUType sets the GPU type for timing simulation (r9nano or mi300x).
+// WithGPUType sets the GPU type for timing simulation (r9nano, mi300x, or
+// mi300x-part).
 func (b Builder) WithGPUType(gpuType string) Builder {
 	b.gpuType = gpuType
+	return b
+}
+
+// WithPartitions sets the number of compute partitions (1 SPX, 2 DPX, 4 QPX,
+// 8 CPX) and memory partitions (NPS1/2/4/8) of an mi300x-part package. The
+// package exposes one GPU per compute partition, so the number of GPUs is
+// overridden by the number of compute partitions.
+func (b Builder) WithPartitions(compute, memory int) Builder {
+	b.numComputePartitions = compute
+	b.numMemoryPartitions = memory
+	return b
+}
+
+// WithFabricObserver registers a callback that receives the package fabric of
+// an mi300x-part platform once it is built (e.g., to report link traffic).
+func (b Builder) WithFabricObserver(f func(*fabric.Comp)) Builder {
+	b.fabricObserver = f
 	return b
 }
 
@@ -99,6 +127,11 @@ func (b Builder) Build() *driver.Driver {
 
 	mmuComp, pageTable := b.createMMU()
 	gpuDriver := b.buildGPUDriver(pageTable)
+
+	if b.gpuType == "mi300x-part" {
+		b.buildPartitionedPackage(mmuComp, gpuDriver)
+		return gpuDriver
+	}
 
 	gpuBuilder := b.createGPUBuilder(mmuComp, gpuDriver)
 	interDeviceConn := b.createConnection(gpuDriver, mmuComp)
@@ -116,6 +149,13 @@ func (b *Builder) cpuGPUMemSizeMustEqual() {
 
 func (b *Builder) adjustConfigForGPUType() {
 	switch b.gpuType {
+	case "mi300x-part":
+		b.numGPUs = b.numComputePartitions
+		b.numCUPerSA = mi300x.NumCUPerShaderArray
+		b.numSAPerGPU = mi300xpart.NumXCD / b.numComputePartitions * mi300x.NumShaderArrayPerXCD
+		b.d2hCycles = 150
+		b.h2dCycles = 250
+		b.log2PageSize = 21 // 2 MB huge pages, as for mi300x
 	case "mi300x":
 		b.numCUPerSA = mi300x.NumCUPerShaderArray
 		b.numSAPerGPU = mi300x.NumShaderArray
@@ -309,4 +349,48 @@ func (b *Builder) configRDMAEngine(
 	b.rdmaAddressMapper.LowModules = append(
 		b.rdmaAddressMapper.LowModules,
 		gpu.RDMADataPort.AsRemote())
+}
+
+// buildPartitionedPackage builds an mi300x-part package. Its GPUs' RDMA ports
+// are already on the package fabric, so only the command processor and the
+// translation ports join the inter-device connection.
+func (b *Builder) buildPartitionedPackage(
+	mmuComp *mmu.Comp,
+	gpuDriver *driver.Driver,
+) {
+	b.createRDMAAddressMapper()
+	interDeviceConn := b.createConnection(gpuDriver, mmuComp)
+
+	pkg := mi300xpart.MakeBuilder().
+		WithSimulation(b.simulation).
+		WithComputePartitions(b.numComputePartitions).
+		WithMemoryPartitions(b.numMemoryPartitions).
+		WithGPUMemSize(b.gpuMemSize).
+		WithLog2PageSize(b.log2PageSize).
+		WithMMU(mmuComp).
+		WithGlobalStorage(b.globalStorage).
+		WithRDMAAddressMapper(b.rdmaAddressMapper).
+		WithDriverPort(gpuDriver.GetPortByName(driver.GPUPortName).AsRemote()).
+		Build()
+
+	for _, gpu := range pkg.GPUs {
+		gpuDriver.RegisterGPU(
+			gpu.CommandProcessorPort.AsRemote(),
+			driver.DeviceProperties{
+				CUCount:  pkg.CUsPerGPU,
+				DRAMSize: b.gpuMemSize,
+			},
+		)
+
+		b.configRDMAEngine(gpu)
+
+		interDeviceConn.PlugIn(gpu.CommandProcessorPort)
+		for _, port := range gpu.TranslationPorts {
+			interDeviceConn.PlugIn(port)
+		}
+	}
+
+	if b.fabricObserver != nil {
+		b.fabricObserver(pkg.Fabric)
+	}
 }

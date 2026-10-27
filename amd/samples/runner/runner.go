@@ -16,6 +16,7 @@ import (
 	"github.com/sarchlab/mgpusim/v5/amd/samples/runner/emusystem"
 	"github.com/sarchlab/mgpusim/v5/amd/samples/runner/timingconfig"
 	"github.com/sarchlab/mgpusim/v5/amd/sampling"
+	"github.com/sarchlab/mgpusim/v5/amd/timing/fabric"
 )
 
 type verificationPreEnablingBenchmark interface {
@@ -36,6 +37,11 @@ type Runner struct {
 	UseUnifiedMemory bool
 	ArchType         arch.Type
 	GPUType          string
+
+	// ComputePartitions and MemoryPartitions configure the mi300x-part GPU.
+	ComputePartitions int
+	MemoryPartitions  int
+	fabric            *fabric.Comp
 
 	GPUIDs     []int
 	benchmarks []benchmarks.Benchmark
@@ -106,7 +112,9 @@ func (r *Runner) buildTimingPlatform() {
 	b := timingconfig.MakeBuilder().
 		WithSimulation(r.simulation).
 		WithNumGPUs(r.GPUIDs[len(r.GPUIDs)-1]).
-		WithGPUType(r.GPUType)
+		WithGPUType(r.GPUType).
+		WithPartitions(r.ComputePartitions, r.MemoryPartitions).
+		WithFabricObserver(func(f *fabric.Comp) { r.fabric = f })
 
 	if *magicMemoryCopy {
 		b = b.WithMagicMemoryCopy()
@@ -181,6 +189,10 @@ func (r *Runner) Run() {
 	if r.reporter != nil {
 		r.reporter.report()
 		r.reporter.dataRecorder.Flush()
+	}
+
+	if *reportFabricFlag != "" && r.fabric != nil {
+		writeFabricReport(*reportFabricFlag, r.fabric, r.Engine().CurrentTime())
 	}
 
 	r.Driver().Terminate()

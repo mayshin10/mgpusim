@@ -11,6 +11,11 @@ import (
 // snapshotting of all the components, all of which panic on error.
 func buildPlatform(t *testing.T, gpuType string, numGPUs int) {
 	t.Helper()
+	buildPartitionedPlatform(t, gpuType, numGPUs, 1, 1)
+}
+
+func buildPartitionedPlatform(t *testing.T, gpuType string, numGPUs, compute, memory int) {
+	t.Helper()
 
 	s := simulation.MakeBuilder().
 		WithoutMonitoring().
@@ -22,6 +27,7 @@ func buildPlatform(t *testing.T, gpuType string, numGPUs int) {
 		WithSimulation(s).
 		WithNumGPUs(numGPUs).
 		WithGPUType(gpuType).
+		WithPartitions(compute, memory).
 		Build()
 
 	if gpuDriver == nil {
@@ -52,4 +58,20 @@ func TestBuildR9NanoMultiGPUPlatform(t *testing.T) {
 
 func TestBuildMI300XPlatform(t *testing.T) {
 	buildPlatform(t, "mi300x", 1)
+}
+
+func TestBuildMI300XPartSPXNPS1Platform(t *testing.T) {
+	buildPartitionedPlatform(t, "mi300x-part", 1, 1, 1)
+}
+
+func TestBuildMI300XPartCPXNPS1Platform(t *testing.T) {
+	buildPartitionedPlatform(t, "mi300x-part", 8, 8, 1)
+}
+
+func TestBuildMI300XPartCPXNPS4Platform(t *testing.T) {
+	buildPartitionedPlatform(t, "mi300x-part", 8, 8, 4)
+}
+
+func TestBuildMI300XPartCPXNPS8Platform(t *testing.T) {
+	buildPartitionedPlatform(t, "mi300x-part", 8, 8, 8)
 }
