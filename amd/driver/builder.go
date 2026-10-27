@@ -7,7 +7,6 @@ import (
 	"github.com/sarchlab/akita/v5/modeling"
 	"github.com/sarchlab/akita/v5/timing"
 	"github.com/sarchlab/mgpusim/v5/amd/driver/internal"
-	"github.com/sarchlab/mgpusim/v5/amd/insts"
 )
 
 // defaultSpec provides the default configuration of the driver.
@@ -108,7 +107,7 @@ func (b Builder) Build(name string) *Driver {
 	driver.enqueueSignal = make(chan bool)
 	driver.driverStopped = make(chan bool)
 	driver.engineIdle = sync.NewCond(&driver.engineRunningMutex)
-	driver.codeObjGPUAddrs = make(map[*insts.KernelCodeObject]Ptr)
+	driver.codeObjGPUAddrs = make(map[codeObjKey]Ptr)
 
 	b.createCPU(driver)
 

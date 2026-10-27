@@ -23,11 +23,7 @@ func (d *Driver) EnqueueLaunchKernel(
 	if dev.Type == internal.DeviceTypeUnifiedGPU {
 		d.enqueueLaunchUnifiedKernel(queue, co, gridSize, wgSize, kernelArgs)
 	} else {
-		dCoData, cached := d.codeObjGPUAddrs[co]
-		if !cached {
-			dCoData = d.AllocateMemory(queue.Context, uint64(len(co.Data)))
-			d.codeObjGPUAddrs[co] = dCoData
-		}
+		dCoData := d.LoadCodeObject(queue.Context, queue.GPUID, co)
 
 		dKernArgData := d.AllocateMemory(queue.Context, co.KernargSegmentByteSize)
 
@@ -37,14 +33,37 @@ func (d *Driver) EnqueueLaunchKernel(
 		aqlPacket := d.createAQLPacket(gridSize, wgSize, dCoData, dKernArgData)
 		newKernelArgs := d.prepareLocalMemory(co, kernelArgs, aqlPacket)
 
-		if !cached {
-			d.EnqueueMemCopyH2D(queue, dCoData, co.Data)
-		}
 		d.EnqueueMemCopyH2D(queue, dKernArgData, newKernelArgs)
 		d.EnqueueMemCopyH2D(queue, dPacket, aqlPacket)
 
 		d.enqueueLaunchKernelCommand(queue, co, aqlPacket, dPacket)
 	}
+}
+
+// LoadCodeObject returns the address of co in the memory of GPU gpuID,
+// copying it there on first use. The copy completes before LoadCodeObject
+// returns: launches on other queues share the copy and must not fetch the
+// code before it lands. Each GPU gets its own copy so that instruction
+// fetches stay local.
+func (d *Driver) LoadCodeObject(
+	ctx *Context,
+	gpuID int,
+	co *insts.KernelCodeObject,
+) Ptr {
+	key := codeObjKey{co: co, gpuID: gpuID}
+	if dCoData, cached := d.codeObjGPUAddrs[key]; cached {
+		return dCoData
+	}
+
+	selected := ctx.currentGPUID
+	ctx.currentGPUID = gpuID
+	dCoData := d.AllocateMemory(ctx, uint64(len(co.Data)))
+	d.MemCopyH2D(ctx, dCoData, co.Data)
+	ctx.currentGPUID = selected
+
+	d.codeObjGPUAddrs[key] = dCoData
+
+	return dCoData
 }
 
 func (d *Driver) allocateGPUMemory(

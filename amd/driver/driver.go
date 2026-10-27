@@ -54,7 +54,13 @@ type Driver struct {
 
 	Log2PageSize uint64
 
-	codeObjGPUAddrs map[*insts.KernelCodeObject]Ptr
+	codeObjGPUAddrs map[codeObjKey]Ptr
+}
+
+// codeObjKey identifies the copy of a code object in one GPU's memory.
+type codeObjKey struct {
+	co    *insts.KernelCodeObject
+	gpuID int
 }
 
 // gpuPort returns the port that connects the driver to the GPUs' command
