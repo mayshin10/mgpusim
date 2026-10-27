@@ -49,7 +49,7 @@ require (
 
 // replace github.com/syifan/goseth => ../goseth
 
-// replace github.com/sarchlab/akita/v5 => ../../../../akita
+replace github.com/sarchlab/akita/v5 => ../akita // local copy with a faster MSHR lookup (see ../akita git log)
 
 go 1.27.0
 
