@@ -200,7 +200,9 @@ func (d *Disassembler) initializeDecodeTable() {
 	d.addInstType(&InstType{"flat_load_dwordx3", 22, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
 	d.addInstType(&InstType{"flat_load_dwordx4", 23, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
 	d.addInstType(&InstType{"flat_store_byte", 24, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
+	d.addInstType(&InstType{"flat_store_byte_d16_hi", 25, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
 	d.addInstType(&InstType{"flat_store_short", 26, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
+	d.addInstType(&InstType{"flat_store_short_d16_hi", 27, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
 	d.addInstType(&InstType{"flat_store_dword", 28, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
 	d.addInstType(&InstType{"flat_store_dwordx2", 29, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
 	d.addInstType(&InstType{"flat_store_dwordx3", 30, FormatTable[FLAT], 0, ExeUnitVMem, 32, 32, 32, 0, 0})
@@ -308,7 +310,8 @@ func (d *Disassembler) initializeDecodeTable() {
 	d.addInstType(&InstType{"s_bitcmp1_b64", 15, FormatTable[SOPC], 0, ExeUnitScalar, 32, 32, 32, 0, 0})
 	d.addInstType(&InstType{"s_setvskip", 16, FormatTable[SOPC], 0, ExeUnitScalar, 32, 32, 32, 0, 0})
 	d.addInstType(&InstType{"s_set_gpr_idx_on", 17, FormatTable[SOPC], 0, ExeUnitScalar, 32, 32, 32, 0, 0})
-	d.addInstType(&InstType{"s_cmp_eq_u64", 18, FormatTable[SOPC], 0, ExeUnitScalar, 32, 32, 32, 0, 0})
+	d.addInstType(&InstType{"s_cmp_eq_u64", 18, FormatTable[SOPC], 0, ExeUnitScalar, 32, 64, 64, 0, 0})
+	d.addInstType(&InstType{"s_cmp_lg_u64", 19, FormatTable[SOPC], 0, ExeUnitScalar, 32, 64, 64, 0, 0})
 	d.addInstType(&InstType{"s_cmp_ne_u64", 19, FormatTable[SOPC], 0, ExeUnitScalar, 32, 32, 32, 0, 0})
 
 	// SOPK instructions
@@ -856,6 +859,9 @@ func (d *Disassembler) initializeDecodeTable() {
 	d.addInstType(&InstType{"v_pk_fma_f32", 944, FormatTable[VOP3a], 0, ExeUnitVALU, 64, 64, 64, 64, 0})
 	d.addInstType(&InstType{"v_pk_mul_f32", 945, FormatTable[VOP3a], 0, ExeUnitVALU, 64, 64, 64, 0, 0})
 	d.addInstType(&InstType{"v_pk_add_f32", 946, FormatTable[VOP3a], 0, ExeUnitVALU, 64, 64, 64, 0, 0})
+	// VOP3P-MAI matrix instructions (CDNA3). Only the VGPR form (acc_cd = 0)
+	// with no broadcast/permute controls is supported.
+	d.addInstType(&InstType{"v_mfma_f32_16x16x16_bf16", 993, FormatTable[VOP3a], 0, ExeUnitVALU, 128, 64, 64, 128, 0})
 	d.addInstType(&InstType{"v_mul_hi_i32", 647, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
 	d.addInstType(&InstType{"v_ldexp_f32", 648, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
 	d.addInstType(&InstType{"v_readlane_b32", 649, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
@@ -877,6 +883,8 @@ func (d *Disassembler) initializeDecodeTable() {
 	// CDNA3 VOP3A instructions
 	d.addInstType(&InstType{"v_lshl_add_u32", 509, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
 	d.addInstType(&InstType{"v_lshl_or_b32", 512, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
+	d.addInstType(&InstType{"v_and_or_b32", 513, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
+	d.addInstType(&InstType{"v_xad_u32", 499, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
 	d.addInstType(&InstType{"v_add_lshl_u32", 510, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
 	d.addInstType(&InstType{"v_add3_u32", 511, FormatTable[VOP3a], 0, ExeUnitVALU, 32, 32, 32, 32, 0})
 	d.addInstType(&InstType{"v_lshl_add_u64", 520, FormatTable[VOP3a], 0, ExeUnitVALU, 64, 64, 32, 64, 0})
@@ -989,7 +997,7 @@ func (d *Disassembler) initializeDecodeTable() {
 	d.addInstType(&InstType{"ds_read_u16", 60, FormatTable[DS], 0, ExeUnitLDS, 0, 0, 0, 0, 0})
 	d.addInstType(&InstType{"ds_swizzle_b32", 61, FormatTable[DS], 0, ExeUnitLDS, 0, 0, 0, 0, 0})
 	d.addInstType(&InstType{"ds_permute_b32", 62, FormatTable[DS], 0, ExeUnitLDS, 0, 0, 0, 0, 0})
-	d.addInstType(&InstType{"ds_bpermute_b32", 63, FormatTable[DS], 0, ExeUnitLDS, 0, 0, 0, 0, 0})
+	d.addInstType(&InstType{"ds_bpermute_b32", 63, FormatTable[DS], 0, ExeUnitLDS, 32, 32, 0, 0, 0})
 	d.addInstType(&InstType{"ds_add_u64", 64, FormatTable[DS], 0, ExeUnitLDS, 0, 0, 0, 0, 0})
 	d.addInstType(&InstType{"ds_sub_u64", 65, FormatTable[DS], 0, ExeUnitLDS, 0, 0, 0, 0, 0})
 	d.addInstType(&InstType{"ds_rsub_u64", 66, FormatTable[DS], 0, ExeUnitLDS, 0, 0, 0, 0, 0})

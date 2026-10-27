@@ -90,3 +90,40 @@ func NewInst() *Inst {
 	return i
 }
 
+
+// FlatStoreBytes returns the bytes that a sub-dword FLAT/GLOBAL store
+// (opcodes 24-27) writes from its 32-bit data register: store_byte and
+// store_byte_d16_hi write bits [7:0] and [23:16]; store_short and
+// store_short_d16_hi write bits [15:0] and [31:16]. Other opcodes return nil.
+func FlatStoreBytes(opcode Opcode, data uint32) []byte {
+	switch opcode {
+	case 24:
+		return []byte{byte(data)}
+	case 25:
+		return []byte{byte(data >> 16)}
+	case 26:
+		return []byte{byte(data), byte(data >> 8)}
+	case 27:
+		return []byte{byte(data >> 16), byte(data >> 24)}
+	}
+
+	return nil
+}
+
+// FlatLoadExtend returns the 32-bit register value of a sub-dword FLAT/GLOBAL
+// load (opcodes 16-19: ubyte, sbyte, ushort, sshort) from the little-endian
+// bytes at its address, or false for other opcodes.
+func FlatLoadExtend(opcode Opcode, b []byte) (uint32, bool) {
+	switch opcode {
+	case 16:
+		return uint32(b[0]), true
+	case 17:
+		return uint32(int32(int8(b[0]))), true
+	case 18:
+		return uint32(b[0]) | uint32(b[1])<<8, true
+	case 19:
+		return uint32(int32(int16(uint16(b[0]) | uint16(b[1])<<8))), true
+	}
+
+	return 0, false
+}

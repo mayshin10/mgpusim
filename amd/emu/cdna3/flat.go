@@ -75,6 +75,8 @@ func (u *ALU) runFlat(state emu.InstEmuState) {
 		u.runFlatLoadDWordX2(state)
 	case 23:
 		u.runFlatLoadDWordX4(state)
+	case 24, 25, 26, 27:
+		u.runFlatStoreSubDWord(state)
 	case 28:
 		u.runFlatStoreDWord(state)
 	case 29:
@@ -203,6 +205,25 @@ func (u *ALU) runFlatLoadDWordX4(state emu.InstEmuState) {
 		addr := u.flatAddrWithScalar(state, i, hasSAddr, scalarBase)
 		buf := u.storageAccessor.Read(pid, addr, 16)
 		state.WriteOperandBytes(inst.Dst, i, buf)
+	}
+}
+
+// runFlatStoreSubDWord implements store_byte, store_byte_d16_hi,
+// store_short and store_short_d16_hi.
+func (u *ALU) runFlatStoreSubDWord(state emu.InstEmuState) {
+	inst := state.Inst()
+	pid := state.PID()
+	exec := state.EXEC()
+	hasSAddr, scalarBase := u.flatPrecomputeScalarBase(state)
+
+	for i := 0; i < 64; i++ {
+		if exec&(1<<uint(i)) == 0 {
+			continue
+		}
+
+		addr := u.flatAddrWithScalar(state, i, hasSAddr, scalarBase)
+		data := insts.FlatStoreBytes(inst.Opcode, uint32(state.ReadOperand(inst.Data, i)))
+		u.storageAccessor.Write(pid, addr, data)
 	}
 }
 

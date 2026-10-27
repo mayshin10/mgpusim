@@ -315,9 +315,15 @@ func overrideRegisterCountsFromSymbols(
 	for _, sym := range symbols {
 		switch sym.Name {
 		case sgprSymName:
-			// sym.Value = number of SGPRs used. Add 2 for VCC which
-			// is always implicitly allocated on top of numbered SGPRs.
-			sgprCount := uint16(sym.Value) + 2
+			// sym.Value = number of SGPRs used. On GFX9 the hardware
+			// also places VCC, FLAT_SCRATCH and the XNACK mask (2 SGPRs
+			// each) above the numbered SGPRs; the compiler's .sgpr_count
+			// metadata includes whichever the kernel needs. Reserving all
+			// six never under-allocates: counting only VCC let a wave's
+			// SGPRs overlap the next wave's (e.g., a kernel with 15
+			// numbered SGPRs and .sgpr_count 17 got 16), corrupting the
+			// neighbour's kernarg pointer in timing simulation.
+			sgprCount := uint16(sym.Value) + 6
 			// Round up to multiple of 8 (allocation granularity)
 			sgprCount = ((sgprCount + 7) / 8) * 8
 			if sgprCount > meta.WFSgprCount {

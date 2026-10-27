@@ -11,6 +11,8 @@ import (
 func (u *ALU) runVOPC(state emu.InstEmuState) {
 	inst := state.Inst()
 	switch inst.Opcode {
+	case 0xad: // v_cmp_lg_u16 (a.k.a. v_cmp_ne_u16)
+		u.runVCmpNeU16(state)
 	// f32 special comparisons
 	case 0x10:
 		u.runVCmpClassF32(state)
@@ -490,6 +492,21 @@ func (u *ALU) runVCmpGtU32(state emu.InstEmuState) {
 			continue
 		}
 		if uint32(state.ReadOperand(inst.Src0, i)) > uint32(state.ReadOperand(inst.Src1, i)) {
+			vcc |= 1 << uint(i)
+		}
+	}
+	state.SetVCC(vcc)
+}
+
+func (u *ALU) runVCmpNeU16(state emu.InstEmuState) {
+	inst := state.Inst()
+	exec := state.EXEC()
+	var vcc uint64
+	for i := 0; i < 64; i++ {
+		if exec&(1<<uint(i)) == 0 {
+			continue
+		}
+		if uint16(state.ReadOperand(inst.Src0, i)) != uint16(state.ReadOperand(inst.Src1, i)) {
 			vcc |= 1 << uint(i)
 		}
 	}

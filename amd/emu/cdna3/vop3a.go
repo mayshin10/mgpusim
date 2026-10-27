@@ -3,6 +3,7 @@ package cdna3
 import (
 	"log"
 	"math"
+	"math/bits"
 	"sort"
 	"strings"
 
@@ -167,6 +168,8 @@ func (u *ALU) runVOP3A(state emu.InstEmuState) {
 		u.runVPKMULF32(state)
 	case 946:
 		u.runVPKADDF32(state)
+	case 993:
+		u.runVMFMAF32x16x16x16BF16(state)
 	case 509:
 		u.runVLSHLADDU32(state)
 	case 510:
@@ -175,6 +178,16 @@ func (u *ALU) runVOP3A(state emu.InstEmuState) {
 		u.runVADD3U32(state)
 	case 512:
 		u.runVLSHLORB32(state)
+	case 493: // v_perm_b32
+		u.runVPERMB32(state)
+	case 652: // v_mbcnt_lo_u32_b32
+		u.runVMBCNT(state, 0)
+	case 653: // v_mbcnt_hi_u32_b32
+		u.runVMBCNT(state, 32)
+	case 513: // v_and_or_b32
+		u.runVANDORB32(state)
+	case 499: // v_xad_u32
+		u.runVXADU32(state)
 	case 514: // v_or3_b32
 		u.runVOR3B32(state)
 	case 648: // v_ldexp_f32
@@ -284,6 +297,92 @@ func (u *ALU) runVLSHLORB32(state emu.InstEmuState) {
 	}
 }
 
+// runVMBCNT implements v_mbcnt_lo_u32_b32 (half = 0) and v_mbcnt_hi_u32_b32
+// (half = 32): D = S1 + popcount(S0 & bits [half, half+32) of the mask of the
+// lanes below this one).
+func (u *ALU) runVMBCNT(state emu.InstEmuState, half uint) {
+	inst := state.Inst()
+	exec := state.EXEC()
+	for i := 0; i < 64; i++ {
+		if exec&(1<<uint(i)) == 0 {
+			continue
+		}
+		below := uint64(1)<<uint(i) - 1
+		mask := uint32(below >> half)
+		src0 := uint32(state.ReadOperand(inst.Src0, i))
+		src1 := uint32(state.ReadOperand(inst.Src1, i))
+		state.WriteOperand(inst.Dst, i, uint64(src1+uint32(bits.OnesCount32(src0&mask))))
+	}
+}
+
+// runVPERMB32 implements v_perm_b32: each result byte k is selected from the
+// 8 bytes {S0, S1} (S1 is bytes 0-3) by byte k of S2; selectors 8-11
+// replicate the sign bit of bytes 1, 3, 5, 7, 12 gives 0x00 and 13+ 0xff.
+func (u *ALU) runVPERMB32(state emu.InstEmuState) {
+	inst := state.Inst()
+	exec := state.EXEC()
+	for i := 0; i < 64; i++ {
+		if exec&(1<<uint(i)) == 0 {
+			continue
+		}
+		in := uint64(uint32(state.ReadOperand(inst.Src0, i)))<<32 |
+			uint64(uint32(state.ReadOperand(inst.Src1, i)))
+		sel := uint32(state.ReadOperand(inst.Src2, i))
+
+		var d uint32
+		for k := uint(0); k < 4; k++ {
+			d |= uint32(permByte(in, byte(sel>>(8*k)))) << (8 * k)
+		}
+		state.WriteOperand(inst.Dst, i, uint64(d))
+	}
+}
+
+func permByte(in uint64, sel byte) byte {
+	switch {
+	case sel >= 13:
+		return 0xff
+	case sel == 12:
+		return 0x00
+	case sel >= 8:
+		if in>>(16*uint(sel-8)+15)&1 != 0 {
+			return 0xff
+		}
+		return 0x00
+	default:
+		return byte(in >> (8 * uint(sel)))
+	}
+}
+
+// runVXADU32 implements v_xad_u32: D.u = (S0.u ^ S1.u) + S2.u.
+func (u *ALU) runVXADU32(state emu.InstEmuState) {
+	inst := state.Inst()
+	exec := state.EXEC()
+	for i := 0; i < 64; i++ {
+		if exec&(1<<uint(i)) == 0 {
+			continue
+		}
+		src0 := uint32(state.ReadOperand(inst.Src0, i))
+		src1 := uint32(state.ReadOperand(inst.Src1, i))
+		src2 := uint32(state.ReadOperand(inst.Src2, i))
+		state.WriteOperand(inst.Dst, i, uint64((src0^src1)+src2))
+	}
+}
+
+// runVANDORB32 implements v_and_or_b32: D.u = (S0.u & S1.u) | S2.u.
+func (u *ALU) runVANDORB32(state emu.InstEmuState) {
+	inst := state.Inst()
+	exec := state.EXEC()
+	for i := 0; i < 64; i++ {
+		if exec&(1<<uint(i)) == 0 {
+			continue
+		}
+		src0 := uint32(state.ReadOperand(inst.Src0, i))
+		src1 := uint32(state.ReadOperand(inst.Src1, i))
+		src2 := uint32(state.ReadOperand(inst.Src2, i))
+		state.WriteOperand(inst.Dst, i, uint64((src0&src1)|src2))
+	}
+}
+
 // runVADDLSHLU32 implements v_add_lshl_u32 (add and shift left 32-bit)
 // D.u = (S0.u + S1.u) << S2.u[4:0]
 func (u *ALU) runVADDLSHLU32(state emu.InstEmuState) {
@@ -342,7 +441,8 @@ func (u *ALU) vop3aPreprocess(state emu.InstEmuState) {
 func (u *ALU) vop3aPostprocess(state emu.InstEmuState) {
 	inst := state.Inst()
 
-	if strings.HasPrefix(inst.InstName, "v_pk_") {
+	if strings.HasPrefix(inst.InstName, "v_pk_") ||
+		strings.HasPrefix(inst.InstName, "v_mfma_") {
 		return
 	}
 

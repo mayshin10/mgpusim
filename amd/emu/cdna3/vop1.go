@@ -58,7 +58,11 @@ func (u *ALU) runVOP1(state emu.InstEmuState) {
 	case 45:
 		u.runVFFBHU32(state)
 	case 56:
-		u.runVMOVRELSDB32(state)
+		if inst.InstName == "v_mov_b64_e32" { // gfx940+ reuses the encoding
+			u.runVMOVB32(state) // the 64-bit operands make it a plain copy
+		} else {
+			u.runVMOVRELSDB32(state)
+		}
 	case 76:
 		u.runLogLegacyF32(state)
 	default:

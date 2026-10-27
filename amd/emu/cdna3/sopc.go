@@ -38,8 +38,21 @@ func (u *ALU) runSOPC(state emu.InstEmuState) {
 		u.runSBITCMP0B32(state)
 	case 13:
 		u.runSBITCMP1B32(state)
+	case 18: // s_cmp_eq_u64
+		setSCC(state, state.ReadOperand(inst.Src0, 0) == state.ReadOperand(inst.Src1, 0))
+	case 19: // s_cmp_lg_u64
+		setSCC(state, state.ReadOperand(inst.Src0, 0) != state.ReadOperand(inst.Src1, 0))
 	default:
 		log.Panicf("Opcode %d for SOPC format is not implemented", inst.Opcode)
+	}
+}
+
+// setSCC sets SCC to 1 if cond holds and to 0 otherwise.
+func setSCC(state emu.InstEmuState, cond bool) {
+	if cond {
+		state.SetSCC(1)
+	} else {
+		state.SetSCC(0)
 	}
 }
 

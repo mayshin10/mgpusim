@@ -9,6 +9,8 @@ import (
 func (u *ALU) runDS(state emu.InstEmuState) {
 	inst := state.Inst()
 	switch inst.Opcode {
+	case 63:
+		u.runDSBPERMUTEB32(state)
 	case 13:
 		u.runDSWRITEB32(state)
 	case 14:
@@ -33,6 +35,28 @@ func (u *ALU) runDS(state emu.InstEmuState) {
 		u.runDSREADB128(state)
 	default:
 		log.Panicf("Opcode %d for DS format is not implemented", inst.Opcode)
+	}
+}
+
+// runDSBPERMUTEB32 implements ds_bpermute_b32 (backward permute, no LDS
+// access): lane i returns the data of lane ((addr_i + offset) / 4) % 64. All
+// source values are read before any lane is written.
+func (u *ALU) runDSBPERMUTEB32(state emu.InstEmuState) {
+	inst := state.Inst()
+	exec := state.EXEC()
+
+	var src [64]uint64
+	for i := 0; i < 64; i++ {
+		src[i] = state.ReadOperand(inst.Data, i)
+	}
+
+	for i := 0; i < 64; i++ {
+		if exec&(1<<uint(i)) == 0 {
+			continue
+		}
+
+		addr := uint32(state.ReadOperand(inst.Addr, i)) + inst.Offset0
+		state.WriteOperand(inst.Dst, i, src[(addr/4)%64])
 	}
 }
 

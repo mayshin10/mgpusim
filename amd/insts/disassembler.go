@@ -49,6 +49,10 @@ type Disassembler struct {
 	// Maps from the format to table
 	decodeTables map[FormatType]*decodeTable
 	nextInstID   int
+
+	// cdna3Tables hold the encodings that CDNA3 (gfx940+) reassigned; they
+	// take precedence over decodeTables when IsCDNA3 is set.
+	cdna3Tables map[FormatType]*decodeTable
 }
 
 func (d *Disassembler) addInstType(info *InstType) {
@@ -68,8 +72,27 @@ func NewDisassembler() *Disassembler {
 
 	d.initFormatList()
 	d.initializeDecodeTable()
+	d.initializeCDNA3DecodeTable()
 
 	return d
+}
+
+// initializeCDNA3DecodeTable registers the CDNA3 encodings that differ from
+// GCN3.
+func (d *Disassembler) initializeCDNA3DecodeTable() {
+	d.cdna3Tables = make(map[FormatType]*decodeTable)
+
+	add := func(info *InstType) {
+		if d.cdna3Tables[info.Format.FormatType] == nil {
+			d.cdna3Tables[info.Format.FormatType] = newDecodeTable()
+		}
+		d.cdna3Tables[info.Format.FormatType].insts[info.Opcode] = info
+		info.ID = d.nextInstID
+		d.nextInstID++
+	}
+
+	// VOP1 0x38 is v_movrelsd_b32 on GCN3 but v_mov_b64 on gfx940+.
+	add(&InstType{"v_mov_b64_e32", 0x38, FormatTable[VOP1], 0, ExeUnitVALU, 64, 64, 0, 0, 0})
 }
 
 func (d *Disassembler) matchFormat(firstFourBytes uint32) (*Format, error) {
@@ -100,6 +123,11 @@ func (d *Disassembler) lookUp(
 	format *Format,
 	opcode Opcode,
 ) (*InstType, error) {
+	if d.IsCDNA3 && d.cdna3Tables[format.FormatType] != nil &&
+		d.cdna3Tables[format.FormatType].insts[opcode] != nil {
+		return d.cdna3Tables[format.FormatType].insts[opcode], nil
+	}
+
 	if d.decodeTables[format.FormatType] != nil &&
 		d.decodeTables[format.FormatType].insts[opcode] != nil {
 		return d.decodeTables[format.FormatType].insts[opcode], nil
@@ -545,6 +573,15 @@ func (d *Disassembler) decodeSOPC(inst *Inst, buf []byte) error {
 		}
 		inst.Src1.LiteralConstant = BytesToUint32(buf[4:8])
 	}
+
+	if inst.SRC0Width == 64 && inst.Src0.OperandType == RegOperand {
+		inst.Src0.RegCount = 2
+	}
+
+	if inst.SRC1Width == 64 && inst.Src1.OperandType == RegOperand {
+		inst.Src1.RegCount = 2
+	}
+
 	return nil
 }
 
@@ -641,6 +678,8 @@ func (d *Disassembler) decodeVOP3a(inst *Inst, buf []byte) error {
 		}
 	}
 
+	setWideRegCount(inst)
+
 	inst.Omod = int(extractBits(bytesHi, 27, 28))
 	inst.Neg = int(extractBits(bytesHi, 29, 31))
 	d.parseNeg(inst, inst.Neg)
@@ -659,6 +698,21 @@ func (d *Disassembler) decodeVOP3a(inst *Inst, buf []byte) error {
 	}
 
 	return nil
+}
+
+// setWideRegCount sizes register operands wider than 64 bits (the 128-bit
+// accumulators and results of the MFMA instructions).
+func setWideRegCount(inst *Inst) {
+	widen := func(o *Operand, width int) {
+		if o != nil && o.OperandType == RegOperand && width > 64 {
+			o.RegCount = width / 32
+		}
+	}
+
+	widen(inst.Dst, inst.DSTWidth)
+	widen(inst.Src0, inst.SRC0Width)
+	widen(inst.Src1, inst.SRC1Width)
+	widen(inst.Src2, inst.SRC2Width)
 }
 
 func (d *Disassembler) parseNeg(inst *Inst, neg int) {
