@@ -17,6 +17,14 @@ type simdPipelineSlot struct {
 	taskID    uint64
 }
 
+// mfmaCycles is how long a matrix instruction occupies its SIMD. The values
+// match the MI300X dense peak: 1307.4 TFLOP/s BF16 over 304 CUs x 4 SIMDs at
+// 2.1 GHz is 512 FLOP/cycle/SIMD, and a 16x16x16 MFMA is 8192 FLOP. Other VALU
+// instructions on the same SIMD wait for the MFMA to finish.
+var mfmaCycles = map[string]int{
+	"v_mfma_f32_16x16x16_bf16": 16,
+}
+
 // A SIMDUnit performs branch operations
 type SIMDUnit struct {
 	hooking.HookableBase
@@ -82,6 +90,10 @@ func (u *SIMDUnit) AcceptWave(wave *wavefront.Wavefront) {
 	cycleLeft := 64 / u.NumSinglePrecisionUnit
 	if strings.Contains(wave.Inst().InstName, "f64") {
 		cycleLeft = 64 / (u.NumSinglePrecisionUnit / 2)
+	}
+
+	if c, ok := mfmaCycles[wave.Inst().InstName]; ok {
+		cycleLeft = c
 	}
 
 	if u.scoreboardEnabled {

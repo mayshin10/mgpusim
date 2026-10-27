@@ -255,7 +255,13 @@ func (b *Builder) equipRegisterFiles(cu *ComputeUnit) {
 	cu.SRegFile = sRegFile
 
 	for i := 0; i < b.spec.SIMDCount; i++ {
-		vRegFile := NewSimpleRegisterFile(uint64(b.spec.VGPRCounts[i]*4), 1024)
+		// Registers are laid out lane-major: lane l's registers start at
+		// l * bytesPerLane. bytesPerLane must cover all the VGPRs a lane
+		// owns (VGPRCounts[i] / 64 registers); a fixed 1024 B (256 VGPRs)
+		// made waves allocated above VGPR 256 (e.g., CDNA3's 512-VGPR
+		// SIMDs) overwrite the next lane's registers.
+		bytesPerLane := b.spec.VGPRCounts[i] * 4 / 64
+		vRegFile := NewSimpleRegisterFile(uint64(b.spec.VGPRCounts[i]*4), bytesPerLane)
 		cu.VRegFile = append(cu.VRegFile, vRegFile)
 	}
 }

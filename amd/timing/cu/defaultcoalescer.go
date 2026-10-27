@@ -82,8 +82,11 @@ func (c defaultCoalescer) generateWriteReqs(
 				1,
 			)
 			dataVal := uint32(wf.ReadOperand(dataReg, int(i)))
-			c.findOrCreateWriteReq(&reqs, addr+uint64(j*4),
-				insts.Uint32ToBytes(dataVal))
+			data := insts.FlatStoreBytes(inst.Opcode, dataVal)
+			if data == nil {
+				data = insts.Uint32ToBytes(dataVal)
+			}
+			c.findOrCreateWriteReq(&reqs, addr+uint64(j*4), data)
 		}
 	}
 

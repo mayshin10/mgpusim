@@ -764,10 +764,10 @@ func (cu *ComputeUnit) handleVectorDataLoadReturn(
 		access.Reg = laneInfo.reg
 		access.RegCount = laneInfo.regCount
 		access.LaneID = laneInfo.laneID
-		if inst.FormatType == insts.FLAT && inst.Opcode == 16 { // FLAT_LOAD_UBYTE
-			access.Data = insts.Uint32ToBytes(uint32(rsp.Data[offset]))
-		} else if inst.FormatType == insts.FLAT && inst.Opcode == 18 {
-			access.Data = insts.Uint32ToBytes(uint32(rsp.Data[offset]))
+		if v, ok := insts.FlatLoadExtend(inst.Opcode, rsp.Data[offset:]); ok &&
+			inst.FormatType == insts.FLAT {
+			// ubyte/sbyte/ushort/sshort: extend the 1 or 2 bytes to 32 bits
+			access.Data = insts.Uint32ToBytes(v)
 		} else {
 			end := offset + uint64(4*laneInfo.regCount)
 			if end > uint64(len(rsp.Data)) {
