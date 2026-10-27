@@ -79,7 +79,7 @@ func (b Builder) WithDispatchingPortName(name string) Builder {
 // WithAlg sets the dispatching algorithm.
 func (b Builder) WithAlg(alg string) Builder {
 	switch alg {
-	case "round-robin", "greedy", "partition", "per-die":
+	case "round-robin", "greedy", "partition", "per-die", "per-die-interleaved":
 		b.alg = alg
 	default:
 		panic("unknown dispatching algorithm " + alg)
@@ -179,10 +179,11 @@ func (b Builder) Build(name string) Dispatcher {
 		d.alg = &partitionAlgorithm{
 			cuPool: b.cuResourcePool,
 		}
-	case "per-die":
+	case "per-die", "per-die-interleaved":
 		d.alg = &perDieAlgorithm{
-			cuPool:  b.cuResourcePool,
-			numDies: b.numDies,
+			cuPool:      b.cuResourcePool,
+			numDies:     b.numDies,
+			interleaved: b.alg == "per-die-interleaved",
 		}
 	default:
 		panic("unknown dispatching algorithm " + b.alg)

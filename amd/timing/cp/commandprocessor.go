@@ -32,10 +32,11 @@ type Spec struct {
 	WGScalingThreshold int `json:"wg_scaling_threshold"`
 
 	// Alg selects the work-group dispatching algorithm: "round-robin",
-	// "greedy", "partition", or "per-die". Empty defaults to "round-robin".
+	// "greedy", "partition", "per-die", or "per-die-interleaved". Empty
+	// defaults to "round-robin".
 	Alg string `json:"alg"`
 
-	// NumDies is the number of dies (XCDs) the "per-die" algorithm dispatches
+	// NumDies is the number of dies (XCDs) the "per-die" algorithms dispatch
 	// across in parallel.
 	NumDies int `json:"num_dies"`
 
@@ -43,6 +44,13 @@ type Spec struct {
 	// in cycles, for the "per-die" algorithm. A W-wavefront work-group occupies
 	// its die's dispatch pipe for W*cycles before the die dispatches the next.
 	WavefrontDispatchCycles int `json:"wavefront_dispatch_cycles"`
+
+	// FlushL1Only limits the driver-requested flush to the L1 caches. Set it
+	// when the L2 is the point of coherence for every access to the GPU's
+	// memory (host copies and remote accesses go through it): flushing and
+	// invalidating the L2 is then unnecessary, and costly because the driver
+	// requests a flush before most copies.
+	FlushL1Only bool `json:"flush_l1_only"`
 }
 
 // Control sequences that the Command Processor can be running. The Command

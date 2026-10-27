@@ -112,4 +112,37 @@ var _ = Describe("Per-Die Algorithm", func() {
 		Expect(alg.dies[0].currWG).To(Equal(wg)) // held, not lost
 		Expect(alg.numDispatchedWG).To(Equal(0))
 	})
+
+	It("splits work-groups round-robin across dies when interleaved", func() {
+		alg.interleaved = true
+		alg.numWG = 5
+
+		start0, n0 := alg.dieBlock(0, 3)
+		start1, n1 := alg.dieBlock(1, 3)
+		Expect([]int{start0, n0, start1, n1}).To(Equal([]int{0, 3, 1, 2}))
+
+		alg.interleaved = false
+		start0, n0 = alg.dieBlock(0, 3)
+		start1, n1 = alg.dieBlock(1, 3)
+		Expect([]int{start0, n0, start1, n1}).To(Equal([]int{0, 3, 3, 2}))
+	})
+
+	It("skips the other dies' work-groups between pulls when interleaved", func() {
+		alg.interleaved = true
+		wgA := kernels.NewWorkGroup()
+		wgB := kernels.NewWorkGroup()
+
+		gridBuilder0.EXPECT().NextWG().Return(wgA)
+		cus[0].EXPECT().ReserveResourceForWG(wgA).
+			Return([]resource.WfLocation{}, true)
+		Expect(alg.NextForDie(0).valid).To(BeTrue())
+
+		gomock.InOrder(
+			gridBuilder0.EXPECT().Skip(1),
+			gridBuilder0.EXPECT().NextWG().Return(wgB),
+		)
+		cus[1].EXPECT().ReserveResourceForWG(wgB).
+			Return([]resource.WfLocation{}, true)
+		Expect(alg.NextForDie(0).valid).To(BeTrue())
+	})
 })

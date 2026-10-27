@@ -28,9 +28,13 @@ type dieState struct {
 // NOTE: the per-WG -> die policy is die-level block + intra-die interleave. The
 // HW-accurate cross-XCD distribution is undocumented; this is a modeling choice
 // and is irrelevant to uniform grids (e.g. empty_kernel). See issue #282.
+//
+// With interleaved set, work-group i goes to die i % numDies instead, which is
+// how MI300X distributes work-groups across XCDs in SPX mode.
 type perDieAlgorithm struct {
-	cuPool  resource.CUResourcePool
-	numDies int
+	cuPool      resource.CUResourcePool
+	numDies     int
+	interleaved bool
 
 	numWG           int
 	cusPerDie       int
@@ -60,14 +64,7 @@ func (a *perDieAlgorithm) StartNewKernel(info kernels.KernelLaunchInfo) {
 
 	a.dies = make([]*dieState, a.numDies)
 	for d := 0; d < a.numDies; d++ {
-		start := d * numWGPerDie
-		n := a.numWG - start
-		if n < 0 {
-			n = 0
-		}
-		if n > numWGPerDie {
-			n = numWGPerDie
-		}
+		start, n := a.dieBlock(d, numWGPerDie)
 
 		ds := &dieState{
 			gridBuilder: kernels.NewGridBuilder(),
@@ -78,6 +75,18 @@ func (a *perDieAlgorithm) StartNewKernel(info kernels.KernelLaunchInfo) {
 		ds.gridBuilder.Skip(start)
 		a.dies[d] = ds
 	}
+}
+
+// dieBlock returns the index of the die's first work-group and the number of
+// work-groups the die dispatches.
+func (a *perDieAlgorithm) dieBlock(d, numWGPerDie int) (start, n int) {
+	if a.interleaved {
+		return d, max(0, (a.numWG-d+a.numDies-1)/a.numDies)
+	}
+
+	start = d * numWGPerDie
+
+	return start, min(max(0, a.numWG-start), numWGPerDie)
 }
 
 // NumWG returns the total number of work-groups across all dies.
@@ -107,6 +116,9 @@ func (a *perDieAlgorithm) NextForDie(die int) dispatchLocation {
 	}
 
 	if ds.currWG == nil {
+		if a.interleaved && ds.dispatchedWG > 0 {
+			ds.gridBuilder.Skip(a.numDies - 1) // the other dies' work-groups
+		}
 		ds.currWG = ds.gridBuilder.NextWG()
 	}
 

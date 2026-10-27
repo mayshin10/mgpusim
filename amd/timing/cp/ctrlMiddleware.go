@@ -521,18 +521,24 @@ func (m *ctrlMiddleware) execFlushStep(step int) int {
 	case 2:
 		return m.enqueueCtrlReqs(&state.PendingCacheReqs, m.toCaches(),
 			m.l1Caches(), memcontrolprotocol.CmdInvalidate, nil, 0)
-	case 3:
+	case 3, 4, 5:
+		if m.comp.Spec().FlushL1Only {
+			return 0
+		}
+
+		cmd := []memcontrolprotocol.Command{memcontrolprotocol.CmdDrain,
+			memcontrolprotocol.CmdFlush, memcontrolprotocol.CmdInvalidate}[step-3]
+
 		return m.enqueueCtrlReqs(&state.PendingCacheReqs, m.toCaches(),
-			state.L2Caches, memcontrolprotocol.CmdDrain, nil, 0)
-	case 4:
-		return m.enqueueCtrlReqs(&state.PendingCacheReqs, m.toCaches(),
-			state.L2Caches, memcontrolprotocol.CmdFlush, nil, 0)
-	case 5:
-		return m.enqueueCtrlReqs(&state.PendingCacheReqs, m.toCaches(),
-			state.L2Caches, memcontrolprotocol.CmdInvalidate, nil, 0)
+			state.L2Caches, cmd, nil, 0)
 	case 6:
+		caches := m.allCaches()
+		if m.comp.Spec().FlushL1Only {
+			caches = m.l1Caches()
+		}
+
 		return m.enqueueCtrlReqs(&state.PendingCacheReqs, m.toCaches(),
-			m.allCaches(), memcontrolprotocol.CmdEnable, nil, 0)
+			caches, memcontrolprotocol.CmdEnable, nil, 0)
 	case 7:
 		state.PendingDriverRsps = append(
 			state.PendingDriverRsps, driverRspFlushDone)
