@@ -8,5 +8,5 @@ HSACO = ../kernels_gfx942.hsaco
 all: $(HSACO)
 
 $(HSACO): cpc_kernels.cpp
-	/home/myshin/cpc/kernels/build_hsaco.sh $< $@ -mllvm -amdgpu-mfma-vgpr-form
+	../../../../../../kernels/build_hsaco.sh $< $@ -mllvm -amdgpu-mfma-vgpr-form
 	$(ROCM)/llvm/bin/llvm-objdump --disassemble --mcpu=$(GPU_TARGET) $@ > cpc_kernels.disasm
